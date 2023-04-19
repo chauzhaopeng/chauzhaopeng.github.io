@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    
+    <meta property="og:site_name" content="Zhaopeng Blog">
+    <meta property="og:type" content="article">
+
+    
+    <meta property="og:image" content="https://zhouzhaopeng.github.io///images/Catalina.png">
+    <meta property="twitter:image" content="https://zhouzhaopeng.github.io///images/Catalina.png" />
+    
+
+    
+    <meta name="title" content="iptables 原理概述" />
+    <meta property="og:title" content="iptables 原理概述" />
+    <meta property="twitter:title" content="iptables 原理概述" />
+    
+
+    
+    <meta name="description" content="`iptables` 是 Linux 上最常用的防火墙工具。其底层是基于与 Linux 内核网络协议栈所提供的包过滤 hook 从而实现的，本文针对 iptables 以及 Netfilter 的底层实现做一些基本的介绍。">
+    <meta property="og:description" content="`iptables` 是 Linux 上最常用的防火墙工具。其底层是基于与 Linux 内核网络协议栈所提供的包过滤 hook 从而实现的，本文针对 iptables 以及 Netfilter 的底层实现做一些基本的介绍。" />
+    <meta property="twitter:description" content="`iptables` 是 Linux 上最常用的防火墙工具。其底层是基于与 Linux 内核网络协议栈所提供的包过滤 hook 从而实现的，本文针对 iptables 以及 Netfilter 的底层实现做一些基本的介绍。" />
+    
+
+    
+    <meta property="twitter:card" content="summary" />
+    
+    
+
+    <meta name="keyword"  content="">
+    <link rel="shortcut icon" href="/img/favicon.ico">
+
+    <title>iptables 原理概述 | </title>
+
+    <link rel="canonical" href="/post/23-03-28-deep-dive-into-iptables/">
+
+    
+    
+    
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+
+    
+    <link rel="stylesheet" href="/css/hugo-theme-cleanwhite.min.css">
+
+    
+    <link rel="stylesheet" href="/css/zanshang.css">
+
+    
+    <link href="https://cdn.jsdelivr.net/gh/FortAwesome/Font-Awesome@5.15.1/css/all.css" rel="stylesheet" type="text/css">
+
+    
+    
+
+    
+    <script src="/js/jquery.min.js"></script>
+
+    
+    <script src="/js/bootstrap.min.js"></script>
+
+    
+    <script src="/js/hux-blog.min.js"></script>
+
+    
+    <script src="/js/lazysizes.min.js"></script>
+
+    
+    
+
+</head>
+
+
+
+
+
+
+<nav class="navbar navbar-default navbar-custom navbar-fixed-top">
+
+    <div class="container-fluid">
+        
+        <div class="navbar-header page-scroll">
+            <button type="button" class="navbar-toggle">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Zhaopeng Blog</a>
+        </div>
+
+        
+        
+        <div id="huxblog_navbar">
+            <div class="navbar-collapse">
+                <ul class="nav navbar-nav navbar-right">
+                    <li>
+                        <a href="/">All Posts</a>
+                    </li>
+                    
+                        
+                    
+                    
+		    
+		            <li>
+                        <a href="/search"><i class="fa fa-search"></i></a>
+		           </li>
+                </ul>
+            </div>
+        </div>
+        
+    </div>
+    
+</nav>
+<script>
+    
+    
+    
+    var $body   = document.body;
+    var $toggle = document.querySelector('.navbar-toggle');
+    var $navbar = document.querySelector('#huxblog_navbar');
+    var $collapse = document.querySelector('.navbar-collapse');
+
+    $toggle.addEventListener('click', handleMagic)
+    function handleMagic(e){
+        if ($navbar.className.indexOf('in') > 0) {
+        
+            $navbar.className = " ";
+            
+            setTimeout(function(){
+                
+                if($navbar.className.indexOf('in') < 0) {
+                    $collapse.style.height = "0px"
+                }
+            },400)
+        }else{
+        
+            $collapse.style.height = "auto"
+            $navbar.className += " in";
+        }
+    }
+</script>
+
+
+
+
+<style type="text/css">
+    header.intro-header {
+        background-image: url('/images/Catalina.png')
+    }
+</style>
+
+<header class="intro-header" >
+
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                <div class="post-heading">
+                    <div class="tags">
+                        
+                    </div>
+                    <h1>iptables 原理概述</h1>
+                    <h2 class="subheading"></h2>
+                    <span class="meta">
+                        
+                            Posted by 
+                            
+                                    Zhaopeng Blog
+                             
+                            on 
+                            Tuesday, March 28, 2023
+                            
+                            
+                            
+                            
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+
+
+
+<article>
+    <div class="container">
+        <div class="row">
+
+            
+            <div class="
+                col-lg-8 col-lg-offset-2
+                col-md-10 col-md-offset-1
+                post-container">
+
+                
+                <h2 id="references">References</h2>
+<ul>
+<li><a href="https://www.digitalocean.com/community/tutorials/a-deep-dive-into-iptables-and-netfilter-architecture">A Deep Dive into Iptables and Netfilter Architecture</a></li>
+<li><a href="https://www.tigera.io/blog/when-linux-conntrack-is-no-longer-your-friend/">Linux contrack: Why it breaks down and avoiding the probleam</a></li>
+<li>《Kubernetes 网络权威指南 基础、原理与实战》，杜军，电子工业出版社</li>
+</ul>
+<p>
+  <img src="/images/iptables/Netfilter-packet-flow.svg" alt="img">
+
+</p>
+<h2 id="一iptables-和-netfilter">一、iptables 和 netfilter</h2>
+<p><code>iptables</code> 是 Linux 上最常用的防火墙工具。其底层是基于与 Linux 内核网络协议栈所提供的包过滤 hook 从而实现的。而负责提供这些 hook 的就是 <code>Netfilter</code> 框架。</p>
+<p>每个进入网络系统的包（接收或发送）在经过协议栈时都会触发这些 hook，程序可以通过注册 hook 函数的方式在一些关键路径上处理网络流量。而 Linux 上的防火墙功能正是基于 iptables 所提供的接口，在这些 hook 点上注册了处理函数，从而可以实现对应的防火墙规则。</p>
+<p>综上所述，即 Netfilter 是 Linux 内核提供的一个框架，而 iptables 是基于此框架实现的一个内核模块，同时我们也应该注意到，iptables 并不是唯一基于 Netfilter 实现的内核模块，同样基于 Netfilter 实现的还有例如 IPVS 模块等。</p>
+<h2 id="二network-hook">二、Network Hook</h2>
+<p>netfilter 提供了 5 个 hook 点。包经过这些点时会触发内核模块在这里注册的处理函数。触发哪个 hook 取决于包的方向（ingress/egress）、包的目的地址、包在上一个 hook 点是被丢弃还是拒绝等。</p>
+<p>下面几个 hook 是内核协议栈中已经定义好的：</p>
+<ul>
+<li><code>NF_IP_PRE_ROUTING</code>：接收到的包进入协议栈后立即触发此 hook，在进行任何路由判断（将包发往哪里）之前；</li>
+<li><code>NF_IP_LOCAL_IN</code>：接收到的包经过路由判断，如果目的是本机，将触发此 hook；</li>
+<li><code>NF_IP_FORWARD</code>：接收到的包经过路由判断，如果目的是其他机器，将触发此 hook；</li>
+<li><code>NF_IP_LOCAL_OUT</code>：本机产生的准备发送的包，在进入协议栈之后立即触发此 hook；</li>
+<li><code>NF_IP_POST_ROUTING</code>：本机产生的准备发送的包或者转发的包，在经过路由判断之后，将触发此 hook。</li>
+</ul>
+<p>在 hook 点上注册处理函数时必须提供优先级，以便 hook 被触发时能按照优先级顺序调用处理函数。这使得多个模块（或者同一模块的多个实例）可以在同一 hook 点注册，并且有确定的处理顺序。</p>
+<h2 id="三iptables-表和链">三、iptables 表和链</h2>
+<p><code>iptables</code> 使用表（tables）来组织规则，根据规则的应用场景从而划分到不同的表中。例如某条规则是用来做网络地址转换的，那这条规则会被划分到 <code>nat</code> 表中，如果某条规则是用来判断过滤数据包，那么这条规则则是属于 <code>filter</code> 表的。</p>
+<p>同时，在每个表内部，规则被进一步组织成链（chains）。表是由它们所持有的规则的应用场景定义的，而内置链表示触发它们的 netfilter 钩子，即链决定何时触发这些规则。</p>
+<p>下面可以看出，内置的 chain 名字和 netfilter hook 名字是一一对应的：</p>
+<ul>
+<li><code>PREROUTING</code>：由 <code>NF_IP_PRE_ROUTING</code> hook 触发；</li>
+<li><code>INPUT</code>：由 <code>NF_IP_LOCAL_IN</code> hook 触发；</li>
+<li><code>FORWARD</code>：由 <code>NF_IP_FORWARD</code> hook 触发；</li>
+<li><code>OUTPUT</code>：由 <code>NF_IP_LOCAL_OUT</code> hook 触发；</li>
+<li><code>POSTROUTING</code>：由 <code>NF_IP_POST_ROUTING</code> hook 触发。</li>
+</ul>
+<h2 id="四table-类型">四、table 类型</h2>
+<p>先来看看 iptables 提供的 table 类型，这些 tables 是按规则类型区分的。</p>
+<h3 id="41-filter-table过滤放行拒绝">4.1 filter table：过滤（放行/拒绝）</h3>
+<p><code>filter</code> table 是最常用的表之一，用于判断是否允许一个包通行。</p>
+<p>在防火墙的概念中，这通常被称作包“过滤”（“filtering” packets），这个 table 提供了防火墙的一些常见功能。</p>
+<h3 id="42-nat-table网络地址转换">4.2 nat table：网络地址转换</h3>
+<p><code>nat</code> 表用于实现网络地址转换规则。</p>
+<p>当包进入协议栈的时候，这些规则决定是否以及如何修改包的源/目的地址，以改变包被路由时的行为。<code>nat</code> 表通常用于将包修改后路由到原先的包无法直接访问的网络。</p>
+<h3 id="43-mangle-table修改-ip-头">4.3 mangle table：修改 IP 头</h3>
+<p><code>mangle</code> 表用来对 IP 包的 IP 头进行修改，例如可以修改包的 TTL，增加或减少可以经过的跳数。</p>
+<p>这个表还可以用来对包打上内核内置的标记，以便后续的表或其他网络工具根据标记进行处理。这个标记不会修改 IP 包本身，只是做了个标签，而且只在内核处理过程中有效。</p>
+<h3 id="44-raw-tablecontrack-相关">4.4 raw table：contrack 相关</h3>
+<p>iptables 是有状态的，即 iptables 对数据包有连接追踪（connection tracking）机制（对于 contrack 的进一步探讨看第七小节），而 raw 是用来去除这种最终机制的，主要是为了提高效率使用的。</p>
+<p>raw本身的含义是指“原生的”、“未经过加工 的”，符合 raw 表所对应规则的数据包将会跳过一些检查，这样就可以提高效率；</p>
+<h3 id="45-security-table打-selinux-标记">4.5 security table：打 SELinux 标记</h3>
+<p>最不常用的表（通常，我们说 iptables 只有 4 张表，security 表是后面新加入的特性），用于在数据包上应用 SELiunx。</p>
+<h2 id="五表与链之间的关联">五、表与链之间的关联</h2>
+<p>前面已经讨论了 table 和 chain，接下来我们探讨每个 table 里都有哪些 chain。同时，我们还将关注注册到同一 hook 上的不同 chain 的优先级。例如：mangle、raw、nat 这三个表中都有 <code>PREROUTING</code> chain，那么应该按照什么顺序调用它们呢？</p>
+<h3 id="51-表关联的链以及链的执行顺序">5.1 表关联的链以及链的执行顺序</h3>
+<p>下面的表格展示了 table 和 chain 的关系。横向是 table，纵向是 chain，Y 表示这个 table 里面有这个 chain。例如，第二行表示 <code>raw</code> table 有 <code>PRETOUTING</code> 和 <code>OUTPUT</code> 两 个 chain。具体到每列，从上倒下的顺序就是 netfilter hook 触发的时候，（对应 table 的）chain 被调用的顺序。</p>
+<p>有几点需要说明一下。在下面的图中，<code>nat</code> 表被细分成了 <code>DNAT</code> （修改目的地址） 和 <code>SNAT</code>（修改源地址），以更方便地展示他们的优先级。另外，我们添加了路由决策点 和连接跟踪点，以使得整个过程更完整全面：</p>
+<table>
+<thead>
+<tr>
+<th>Tables↓/Chains→</th>
+<th style="text-align:center">PREROUTING</th>
+<th style="text-align:center">INPUT</th>
+<th style="text-align:center">FORWARD</th>
+<th style="text-align:center">OUTPUT</th>
+<th style="text-align:center">POSTROUTING</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(routing decision)</td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+</tr>
+<tr>
+<td><strong>raw</strong></td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+</tr>
+<tr>
+<td>(connection tracking enabled)</td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+</tr>
+<tr>
+<td><strong>mangle</strong></td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center">✓</td>
+</tr>
+<tr>
+<td><strong>nat</strong> (DNAT)</td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+</tr>
+<tr>
+<td>(routing decision)</td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+</tr>
+<tr>
+<td><strong>filter</strong></td>
+<td style="text-align:center"></td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+</tr>
+<tr>
+<td><strong>security</strong></td>
+<td style="text-align:center"></td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+</tr>
+<tr>
+<td><strong>nat</strong> (SNAT)</td>
+<td style="text-align:center"></td>
+<td style="text-align:center">✓</td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td style="text-align:center">✓</td>
+</tr>
+</tbody>
+</table>
+<p><strong>当一个包触发 netfilter hook 时，处理过程将沿着列从上向下执行</strong>。 触发哪个 hook（列）和包的方向（ingress/egress）、路由判断、过滤条件等相关。</p>
+<p>
+  <img src="/images/iptables/image-20230330113114667.png" alt="image-20230330113114667">
+
+</p>
+<p>特定事件会导致 table 的 chain 被跳过。例如，只有每个连接的第一个包会去匹配 NAT 规则，对这个包的动作会应用于此连接后面的所有包。到这个连接的应答包会被自动应用反方向的 NAT 规则。</p>
+<h3 id="52-自定义-chain">5.2 自定义 chain</h3>
+<p>除了上述我们提到的 chain 外，iptables 也支持创建自定义的链。用户定义的 chain 可以看作是对调用它的 chain 的扩展。例如，用户定义的 chain 在结 束的时候，可以返回 netfilter hook，也可以继续跳转到其他自定义 chain。</p>
+<p>向用户自定义 chain 添加规则和向内置的 chain 添加规则的方式是相同的。不同的地方在于， <strong>用户定义的 chain 只能通过从另一个规则跳转（jump）到它，因为它们没有注册到 netfilter hook</strong>。</p>
+<p>用户自定义的链中的规则和系统预定义的 5 条链里的规则没有区别。犹豫自定义的链没有与 netfilter 里的 hook 进行绑定，所以它不会自定触发，只能从其他链的规则中跳转过来，也就是后续 iptables 规则中提到的 <code>JUMP</code> 动作。</p>
+<p>这种设计使框架具有强大的分支功能，使得管理员可以组织更大更复杂的网络规则。</p>
+<h2 id="六iptables-规则">六、iptables 规则</h2>
+<p>每一条 iptables 规则都包涵匹配和动作两部分。</p>
+<h3 id="61-匹配">6.1 匹配</h3>
+<p>规则的匹配部分指定数据包必须满足的条件，以便执行相关的操作(或“目标”)。</p>
+<p>匹配系统非常灵活，可以通过附加的 iptables 接口进行定义。规则可以根据协议类型、目标或源地址、目标或源端口、目标或源网络、输入或输出接口、报头或连接状态等条件进行匹配。可以将这些规则组合起来创建复杂的规则集，以区分不同的流量。</p>
+<h3 id="62-动作">6.2 动作</h3>
+<p>那么数据包匹配完之后该怎么办，常见的有以下几种操作：</p>
+<ul>
+<li><code>DROP</code>：直接将数据丢弃，不再进行后续的处理；</li>
+<li><code>REJECT</code>：给客户端发挥一个 connection refused 或 destination unreachable 包文；</li>
+<li><code>QUEUE</code>：将数据包放入用户空间的队列，供用户空间的程序处理；</li>
+<li><code>RETURN</code>：跳出当前链，该链里的后续规则不再执行；</li>
+<li><code>ACCEPT</code>：同意数据包通过，继续执行后续的规则；</li>
+<li><code>JUMP</code>：跳转到其他用户自定义的链继续执行。</li>
+</ul>
+<h2 id="七iptables-和-conntrack">七、iptables 和 conntrack</h2>
+<p>在讨论 <code>raw</code> 表和匹配连接状态的时候，我们介绍了构建在 netfilter 之上的 连接跟踪（conntrack）系统。conntrack 系统使得 iptables 基于连接上下文而不是单个包来做出规则判断， 给 iptables 提供了有状态操作的功能。</p>
+<p>conntrack 系统将包和已有的连接进行比较，如果包所属的连接已经存在就更新连接状态， 否则就创建一个新连接。如果 <code>raw</code> 表的某个 chain 对包标记为目标是 <strong><code>NOTRACK</code></strong>， 那这个包会跳过连接跟踪系统。</p>
+<h3 id="71-什么是-conntrack">7.1 什么是 conntrack</h3>
+<p><code>Connection tracking</code>（“contrack”）是 Linux 内核提供的一个重要特性，用来支持 Linux 内核对逻辑网络连接或流进行跟踪，识别组成每个流的所有数据包，从而能够对这些数据包进行一致性的处理。</p>
+<p>Contrack 是 Linux 上一些功能的底层技术支撑：</p>
+<ul>
+<li>
+<p>NAT 就依赖着 Contrack 技术，所以在做 NAT 时，才能将同一连接上的所有包打到同一目标网络去。例如：在 Kubernetes 中，当一个 Pod 访问 Service 时，kube-proxy 的负载均衡会利用 NAT 将请求转发到特定的 Pod 上去。这个时候就需要 contrack 保证来自同一请求的所有包都转发到特定的 Pod 上，也不会被转发到 Service 所代理的其他 Pod 上。</p>
+</li>
+<li>
+<p>有状态防火墙。比如 calico 就依赖 <code>connection tracking</code> 提供的信息精准地将本机允许通过的流量列入放行名单中，而只阻止那些来自不允许通过的流量。如果没有这个，就无法区分连接的状态。例如现在一个 Pod 不允许主动对外访问，但是允许外部的 Pod 访问它，这个时候如果没有 conntrack，就无法识别哪些数据包是该 Pod 响应的，哪些数据包是该 Pod 主动对外访问的。</p>
+</li>
+</ul>
+<p>此外，conntrack 通常可以提高性能(减少CPU和数据包延迟)，因为只有连接中的第一个数据包需要经过完整的网络堆栈处理才能确定如何处理它。</p>
+<h3 id="72-连接的状态">7.2 连接的状态</h3>
+<p>conntrack 系统中的状态有以下几种：</p>
+<ul>
+<li><code>NEW</code>：如果到达的包关联不到任何已有的连接，但包是合法的，就为这个包创建一个新的连接。对面向连接（connection-aware）的协议如 TCP 以及非面向连接的（connectionless）的协议例如 UDP 都适用；</li>
+<li><code>ESTABLISHED</code>：当一个连接收到应答方向的合法包时，状态就从 <code>NEW</code> 变成 <code>ESTABLISHED</code> 。对于 TCP，这个合法包就是 <code>SYN/ACK</code> 包；对于 UDP/ICMP 来说，则是原地址与目的地址的 IP 与原包相反的包；</li>
+<li><code>RELATED</code>：包不属于已有的连接，但是和已有的连接有一定关系。这可能是辅助连接（helper connection），例如 FTP 数据传输连接，活着是其他协议试图建立连接时的 ICMP 应答包；</li>
+<li><code>INVALID</code>：包不属于已有连接，并且因为某些原因不能用来创建一个新连接，例如无法识别、无法路由等；</li>
+<li><code>UNTRACKED</code>：如果在 <code>raw</code> 表中标记为目标是 <code>UNTRACKED</code>，这个包将不会进入 contrack 系统；</li>
+<li><code>SNAT</code>：包的源地址被 NAT 修改之后会进入的虚拟状态，conntrack 系统根据此在收到反向包时对地址做反向转换；</li>
+<li><code>DNAT</code>：包的目的地址被 NAT 修改之后会进入的虚拟状态，conntrack 系统根据此在收到反向包时对地址做反向转换。</li>
+</ul>
+<p>这些状态可以定位到连接生命周期内部，程序员可以据此编写出更加细粒度、适用范围更大、更安全的规则。</p>
+<h2 id="八总结">八、总结</h2>
+<p>Netfilter 包过滤框架和 iptables 防火墙是 Linux 服务器上大部分防火墙解决方案的基础。Netfilter 的内核 hook 和协议栈之间联系紧密，提供了对数据包经过系统时的强大控制功能。 iptables 基于这些功能提供了一个灵活的、可扩展的、将策略需求应用到内核的方案。理解了这些不同模块是如何联系到一起的，就可以更高效地对数据包进行控制。</p>
+
+
+                
+
+                
+                <hr>
+                <ul class="pager">
+                    
+                    
+                    <li class="next">
+                        <a href="/post/23-04-16-raft-consensus-algo-based-on-log-replication/" data-toggle="tooltip" data-placement="top" title="Raft: 基于 Log 复制的共识算法">Next
+                            Post &rarr;</a>
+                    </li>
+                    
+                </ul>
+                
+
+                
+
+
+
+            </div>
+
+            
+            
+            <div class="
+                col-lg-2 col-lg-offset-0
+                visible-lg-block
+                sidebar-container
+                catalog-container">
+                <div class="side-catalog">
+                    <hr class="hidden-sm hidden-xs">
+                    <h5>
+                        <a class="catalog-toggle" href="#">CATALOG</a>
+                    </h5>
+                    <ul class="catalog-body"></ul>
+                </div>
+            </div>
+            
+
+            
+            <div class="
+                col-lg-8 col-lg-offset-2
+                col-md-10 col-md-offset-1
+                sidebar-container">
+
+                
+                
+
+                
+                
+            </div>
+        </div>
+    </div>
+</article>
+
+
+
+
+<footer>
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                <ul class="list-inline text-center">                  
+                    
+                    
+                    
+                    
+                    
+
+		            
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+            
+            
+            
+           
+             </ul>
+		<p class="copyright text-muted">
+                    Copyright &copy; Zhaopeng Blog 2023
+                    <br>
+                    <a href="https://themes.gohugo.io/hugo-theme-cleanwhite">CleanWhite Hugo Theme</a> by <a href="https://zhaohuabing.com">Huabing</a> |
+                    <iframe
+                        style="margin-left: 2px; margin-bottom:-5px;"
+                        frameborder="0" scrolling="0" width="100px" height="20px"
+                        src="https://ghbtns.com/github-btn.html?user=zhaohuabing&repo=hugo-theme-cleanwhite&type=star&count=true" >
+                    </iframe>
+                </p>
+            </div>
+        </div>
+    </div>
+</footer>
+
+
+
+
+<script>
+    function loadAsync(u, c) {
+      var d = document, t = 'script',
+          o = d.createElement(t),
+          s = d.getElementsByTagName(t)[0];
+      o.src = u;
+      if (c) { o.addEventListener('load', function (e) { c(null, e); }, false); }
+      s.parentNode.insertBefore(o, s);
+    }
+</script>
+
+
+
+
+
+
+<script>
+    
+    if($('#tag_cloud').length !== 0){
+        loadAsync("/js/jquery.tagcloud.js",function(){
+            $.fn.tagcloud.defaults = {
+                
+                color: {start: '#bbbbee', end: '#0085a1'},
+            };
+            $('#tag_cloud a').tagcloud();
+        })
+    }
+</script>
+
+
+<script>
+    loadAsync("https://cdn.jsdelivr.net/npm/fastclick@1.0.6/lib/fastclick.min.js", function(){
+        var $nav = document.querySelector("nav");
+        if($nav) FastClick.attach($nav);
+    })
+</script>
+
+
+
+
+
+
+<script type="text/javascript">
+    function generateCatalog(selector) {
+
+        
+        
+        
+        
+            _containerSelector = 'div.post-container'
+        
+
+        
+        var P = $(_containerSelector), a, n, t, l, i, c;
+        a = P.find('h1,h2,h3,h4,h5,h6');
+
+        
+        $(selector).html('')
+
+        
+        a.each(function () {
+            n = $(this).prop('tagName').toLowerCase();
+            i = "#" + $(this).prop('id');
+            t = $(this).text();
+            c = $('<a href="' + i + '" rel="nofollow">' + t + '</a>');
+            l = $('<li class="' + n + '_nav"></li>').append(c);
+            $(selector).append(l);
+        });
+        return true;
+    }
+
+    generateCatalog(".catalog-body");
+
+    
+    $(".catalog-toggle").click((function (e) {
+        e.preventDefault();
+        $('.side-catalog').toggleClass("fold")
+    }))
+
+    
+
+
+    loadAsync("\/js\/jquery.nav.js", function () {
+        $('.catalog-body').onePageNav({
+            currentClass: "active",
+            changeHash: !1,
+            easing: "swing",
+            filter: "",
+            scrollSpeed: 700,
+            scrollOffset: 0,
+            scrollThreshold: .2,
+            begin: null,
+            end: null,
+            scrollChange: null,
+            padding: 80
+        });
+    });
+</script>
+
+
+
+
+
+
+</body>
+</html>

@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    
+    <meta property="og:site_name" content="Zhaopeng Blog">
+    <meta property="og:type" content="article">
+
+    
+    <meta property="og:image" content="https://zhouzhaopeng.github.io///images/Catalina.png">
+    <meta property="twitter:image" content="https://zhouzhaopeng.github.io///images/Catalina.png" />
+    
+
+    
+    <meta name="title" content="Raft: 基于 Log 复制的共识算法" />
+    <meta property="og:title" content="Raft: 基于 Log 复制的共识算法" />
+    <meta property="twitter:title" content="Raft: 基于 Log 复制的共识算法" />
+    
+
+    
+    <meta name="description" content="Raft 是一种易于理解的分布式一致性算法。本文针对协议中的主要部分，包括 Leader 选举以及 Log Replication，对其进行了较为详细且易理解的介绍。">
+    <meta property="og:description" content="Raft 是一种易于理解的分布式一致性算法。本文针对协议中的主要部分，包括 Leader 选举以及 Log Replication，对其进行了较为详细且易理解的介绍。" />
+    <meta property="twitter:description" content="Raft 是一种易于理解的分布式一致性算法。本文针对协议中的主要部分，包括 Leader 选举以及 Log Replication，对其进行了较为详细且易理解的介绍。" />
+    
+
+    
+    <meta property="twitter:card" content="summary" />
+    
+    
+
+    <meta name="keyword"  content="">
+    <link rel="shortcut icon" href="/img/favicon.ico">
+
+    <title>Raft: 基于 Log 复制的共识算法 | </title>
+
+    <link rel="canonical" href="/post/23-04-16-raft-consensus-algo-based-on-log-replication/">
+
+    
+    
+    
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+
+    
+    <link rel="stylesheet" href="/css/hugo-theme-cleanwhite.min.css">
+
+    
+    <link rel="stylesheet" href="/css/zanshang.css">
+
+    
+    <link href="https://cdn.jsdelivr.net/gh/FortAwesome/Font-Awesome@5.15.1/css/all.css" rel="stylesheet" type="text/css">
+
+    
+    
+
+    
+    <script src="/js/jquery.min.js"></script>
+
+    
+    <script src="/js/bootstrap.min.js"></script>
+
+    
+    <script src="/js/hux-blog.min.js"></script>
+
+    
+    <script src="/js/lazysizes.min.js"></script>
+
+    
+    
+
+</head>
+
+
+
+
+
+
+<nav class="navbar navbar-default navbar-custom navbar-fixed-top">
+
+    <div class="container-fluid">
+        
+        <div class="navbar-header page-scroll">
+            <button type="button" class="navbar-toggle">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Zhaopeng Blog</a>
+        </div>
+
+        
+        
+        <div id="huxblog_navbar">
+            <div class="navbar-collapse">
+                <ul class="nav navbar-nav navbar-right">
+                    <li>
+                        <a href="/">All Posts</a>
+                    </li>
+                    
+                        
+                    
+                    
+		    
+		            <li>
+                        <a href="/search"><i class="fa fa-search"></i></a>
+		           </li>
+                </ul>
+            </div>
+        </div>
+        
+    </div>
+    
+</nav>
+<script>
+    
+    
+    
+    var $body   = document.body;
+    var $toggle = document.querySelector('.navbar-toggle');
+    var $navbar = document.querySelector('#huxblog_navbar');
+    var $collapse = document.querySelector('.navbar-collapse');
+
+    $toggle.addEventListener('click', handleMagic)
+    function handleMagic(e){
+        if ($navbar.className.indexOf('in') > 0) {
+        
+            $navbar.className = " ";
+            
+            setTimeout(function(){
+                
+                if($navbar.className.indexOf('in') < 0) {
+                    $collapse.style.height = "0px"
+                }
+            },400)
+        }else{
+        
+            $collapse.style.height = "auto"
+            $navbar.className += " in";
+        }
+    }
+</script>
+
+
+
+
+<style type="text/css">
+    header.intro-header {
+        background-image: url('/images/Catalina.png')
+    }
+</style>
+
+<header class="intro-header" >
+
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                <div class="post-heading">
+                    <div class="tags">
+                        
+                    </div>
+                    <h1>Raft: 基于 Log 复制的共识算法</h1>
+                    <h2 class="subheading"></h2>
+                    <span class="meta">
+                        
+                            Posted by 
+                            
+                                    Zhaopeng Blog
+                             
+                            on 
+                            Sunday, April 16, 2023
+                            
+                            
+                            
+                            
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+
+
+
+<article>
+    <div class="container">
+        <div class="row">
+
+            
+            <div class="
+                col-lg-8 col-lg-offset-2
+                col-md-10 col-md-offset-1
+                post-container">
+
+                
+                <h2 id="references">References</h2>
+<ul>
+<li>
+<p><a href="http://thesecretlivesofdata.com/raft/">Raft 演示</a></p>
+</li>
+<li>
+<p><a href="https://raft.github.io/raft.pdf">In Search of an Understandable Consensus Algorithm (Extended Version)</a></p>
+</li>
+</ul>
+<h2 id="1-raft-是什么">1. Raft 是什么</h2>
+<h3 id="11-目标-复制-log">1.1 目标: 复制 Log</h3>
+<p>在讲解 Raft 协议的具体行为之前我们需要明白 Raft 的目标是什么？在一些情况下我们需要保证分布式集群中的机器拥有<strong>相同的数据</strong>，以确保在 Leader 节点宕机的情况下，其他节点能够作为新的 Leader 被选举出来处理请求。这里产生一个问题，即我们如何才能确保集群中的机器拥有相同的数据呢？</p>
+<p>Raft 提供了一种行之有效的方式：即将 Leader 节点将要执行的命令，通过日志复制的方式同步到其他的节点，再由<strong>状态机</strong>按照日志的顺序执行日志中的每一条命令，就能够确保 Leader 节点上的数据与其他节点上的数据保持一致。这里提到的状态机通常指的是一个输入输出程序或应用。所以 Raft 的目的以及运作机制都在于此：</p>
+<ul>
+<li>复制 Log =&gt; 复制状态机 =&gt; 同步数据</li>
+</ul>
+<p>
+  <img src="/images/raft/image-20230411151136897.png" alt="image-20230411151136897">
+
+</p>
+<p>这里简要介绍下这一过程：客户端将要执行的命令传递给集群中的 Leader，假设命令是 X，那么 X 首先会被 Leader 集群，然后会通过日志复制的方式（通常是一次 RPC 调用）同步到其他的节点，并被其他节点作为日志记录到本地。一旦 X 被安全地复制到日志中，那么它们就能被发送到状态机供执行。当状态机完成了 X 的执行，就会将结果返回给客户端。</p>
+<p>可以注意到只要各个节点上的 Log 是相同的，各个服务器上的状态机就能以相同的顺序执行相同的命令，这样它们执行的结果也都是一样的。所以共识性模块（上图中的 <code>Consensus Module</code>）的任务就是管理这些日志，并保证它们正确的在集群内复制并且决定何时将命令传送给状态机才是安全的。</p>
+<p>此外，Raft 设计之初也有为了容灾的目的。Raft 不需要所有的节点在任何时候都处于运行状态，实际上只要在大多数服务器（一般是 &gt; 1/2 的节点）存活的状态下能继续正常运行和相互通信就可以。</p>
+<h3 id="12-实现共识的方式">1.2 实现共识的方式</h3>
+<p>想要实现共识性算法主要有两种方式：</p>
+<ul>
+<li>对称式或无主式：在这种方式下，所有的节点的角色相同，拥有同等的权力，任何时候的行为几乎都是一样的，客户端可以与任何一个节点进行通信；</li>
+<li>非对称式或领导式：集群内节点在任何时候都不是对等的，只有其中的一台服务器是 Leader，Leader 负责集群的所有操作，其他的节点只是简单地服从 Leader 发出的指令，在这种系统下，客户端永远与 Leader 通信，只有 Leader 才与其他的节点发送通信。</li>
+</ul>
+<p>Raft 就是基于领导式的协议。它将共识性算法的问题分解成两类不同的问题：</p>
+<ol>
+<li>一种是在 Leader 正常运行下，进行的普通操作；</li>
+<li>另一种是在 Leader 崩溃时，对 Leader 进行重新选举。</li>
+</ol>
+<p>通常来说，基于领导者的方式要比无领导者的方式简单，因为无需担心不同服务器间会出现冲突，只须关心领导者发生变化的情况。</p>
+<h3 id="13-raft-协议概览">1.3 Raft 协议概览</h3>
+<p>Raft 算法将分布式一致性分解为多个子问题：</p>
+<ul>
+<li>Leader 选举（Leader election）</li>
+<li>Leader 变更（Leader Changes）</li>
+<li>日志复制（Log Replication）</li>
+<li>日志压缩（Log Compaction）</li>
+<li>安全性（Safety）</li>
+<li>客户端协议（Client Protocol）</li>
+<li>&hellip;&hellip;</li>
+</ul>
+<h2 id="2-leader-选举leader-election">2. Leader 选举（Leader Election）</h2>
+<p>对于 Raft 来说，想要进行正常的日志复制以及对异常日志的处理，都需要有一个 Leader 节点。所以我们首先先来了解 Raft 中 Leader 节点的选举流程。这一块内容只依赖文字描述很难形成详细理解，建议读者结合 <a href="http://thesecretlivesofdata.com/raft/#election">Raft Leader Election</a> 进行阅读。</p>
+<h3 id="21-节点状态">2.1 节点状态</h3>
+<p>任意情况，Raft 中的节点都处于以下三种状态之一：</p>
+<ul>
+<li>Leader：集群中的领导者。负责接受客户端发送的写请求、将请求命令同步到其他节点（即日志同步）、；</li>
+<li>Follower：集群中的跟随者。负责 Leader 接受更新请求，然后写入本地日志文件，在 Leader 宕机后成为 Candidate，作为 Leader 的备份存在；</li>
+<li>Candidate：Leader 宕机后集群中的候选者。负责发起选举投票。如果 Follower 节点在一段时间内没有收到 Leader 的心跳，则判断 Leader 可能已经故障，此时启动选主过程，副本将转变为 candidate 状态，直到选主结束。</li>
+</ul>
+<p>下图是集群中角色状态的转变图，这里可以先做大致的了解：</p>
+<!-- raw HTML omitted -->
+<h3 id="22-任期term">2.2 任期（Term）</h3>
+<p>Raft 的中另外一个重要概念是 Term，意为任期。Raft 将整个运行过程的时间分为任意时长的任期。每个任期 Raft 只做两件事：</p>
+<ul>
+<li>选出 Leader 节点；</li>
+<li>在 Leader 节点的领导下，完成日志同步或日志一致性修复等操作。</li>
+</ul>
+<!-- raw HTML omitted -->
+<p>对于 Raft 中的每一个任期，<strong>最多只能有一个 Leader</strong>。当然某些任期可能还会没有 Leader 的存在，这是由于可能存在没有 Candidate 获得集群内多数节点选票而造成的，当这种情况出现时，系统将会进入新的任期并尝试重新选举。</p>
+<p>此外，在 Raft 系统的所有节点都保持着一个当前任期的值，这个信息一般存在于节点的可靠媒介中（如硬盘），这样就能在服务器崩溃之后得以重启并恢复。</p>
+<p>任期这个概念十分重要，它使 Raft 中的节点可以判断过期的信息。例如一台认为当前的任期为 2 的节点与另一认为当前任期号为 3 的节点进行通信，那么 Raft 就能知道来自于任期 2 的信息是过期的。所以我们将会看到在某些情况下，会使用到任期来检查并消除过期的信息。</p>
+<h3 id="23-心跳与超时时间">2.3 心跳与超时时间</h3>
+<p>在 Raft 中，当一个节点加入集群后它首先将以 Follower 的角色运行，这个时候该节点期望收到来自 Leader 或 Candidate 的 RPC 消息。而作为 Raft 集群中的 Leader，也必须定时地发送心跳消息给集群中的其他节点，以告知其他节点当前 Leader 节点还正常运行，保证其 Leader 的地位。</p>
+<p>一旦 Follower 节点在超时时间（electionTimeout，通常为 100~500ms）内没有收到来自其他节点的 RPC 消息，那么该 Follower 节点会认为当前集群没有 Leader 节点，且没有 Candidate 正在进行选举，从而将转变成为 Candidate，发起选举。</p>
+<h3 id="24-选举的流程">2.4 选举的流程</h3>
+<p>上面提到当一个 Follower 节点在超时时间后没有收到来自其他节点的 RPC 消息后，它就将转变为 Candidate 节点，发起选举。那么这个过程大概如下所示：</p>
+<ol>
+<li>增加当前的任期号，+1；</li>
+<li>随后将自己从 Follower 状态转换到 Candidate 状态；</li>
+<li>为自己投票（Raft 要求 Candidate 需要获得多数节点，即超过半数节点的投票才能成为 Leader，不要忽略节点自身的这一票）；</li>
+<li>发送 <code>RequestVote</code> RPCs 消息给集群内其他节点，该 RPC 消息会超时重试，直到以下三种情况：
+<ul>
+<li>收到超过半数节点的投票：
+<ul>
+<li>成为 Leader；</li>
+<li>定时向集群内其他节点发送 <code>AppendEntries</code> 心跳消息；</li>
+</ul>
+</li>
+<li>收到来自其他<strong>已认证 Leader 节点</strong>的心跳消息：
+<ul>
+<li>将自己切换为 Follower 状态，追随该 Leader 节点</li>
+</ul>
+</li>
+<li>没有选出 Leader（在超时时间后，没有收到来自超过半数节点的选票）：
+<ul>
+<li>将任期号往上加 1，开启新一轮选举，重复上述流程。</li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+<h3 id="25-安全性--可用性">2.5 安全性 &amp; 可用性</h3>
+<ul>
+<li>
+<p>安全性：对于 Raft 来说，每一个任期（Term）最多只能有一个 Leader，否则将产生脑裂。对此 Raft 对选举策略做了以下要求保证这一点：</p>
+<ul>
+<li>
+<p>不允许两个不同的 Candidate 同时在同一个任期内获得超过半数的选票；</p>
+</li>
+<li>
+<p>每一节点只能投票一次并将投票信息记录到磁盘；</p>
+<blockquote>
+<p>节点一旦投出选票，将拒绝来自其他 Candidate 的任何请求。为了实现这种机制，节点需要保证将自己的投票信息存储到磁盘，这样就能在节点崩溃之后也能恢复到之前的状态。否则就会出现服务器已经作出投票，并在崩溃重启后，在同一任期内将票又投给了另外一个不同服务器的情况。</p>
+</blockquote>
+</li>
+</ul>
+<p>可以发现，因为每台服务器只能进行一次投票，而且每个候选者都必须获得多数票，不可能出现两个候选者同时获胜的情况。</p>
+</li>
+<li>
+<p>可用性：这是指选举应该保证最终能够选出 Leader 从而领导集群中节点进行请求处理。对此，我们需要针对一些情况提出解决措施：</p>
+<ul>
+<li>
+<p>对于 Candidate 来说，选举的超时时间应该是 [T, 2T] 之间的随机数；</p>
+<blockquote>
+<p>当投票被瓜分后，所有的 Candidate 同时超时，然后有可能进入新一轮的票数被瓜分。为了避免这个问题，Raft 采用一种很简单的方法：每个 Candidate 的 election timeout 从 150ms-300ms 之间随机取，那么第一个超时的 Candidate 就可以发起新一轮的 leader election，带着最大的 term_id 给其它所有 server 发送 RequestVoteRPC 消息，从而自己成为 leader，然后给他们发送心跳消息以告诉他们自己是主。</p>
+</blockquote>
+</li>
+<li>
+<p>Candidate 超时时间 T 应该 &raquo; Candidate 到其他节点的网络传输时间；</p>
+</li>
+</ul>
+</li>
+</ul>
+<h2 id="3-日志复制log-replication">3. 日志复制（Log Replication）</h2>
+<h3 id="31-日志结构">3.1 日志结构</h3>
+<p>
+  <img src="/images/raft/image-20230411163835319.png" alt="image-20230411163835319">
+
+</p>
+<p>首先，先关注日志本身。每台节点无论是 Leader 还是 Follower，都各自保存着一个副本。日志本身被分成了多条记录（Entries），记录是由下标索引的位置来进行唯一标示的，在记录内部有两个主要信息：</p>
+<ol>
+<li>每条记录都包括供状态机执行的一条命令，命令的格式可以是客户端与状态所达成一致的某种格式；</li>
+<li>每条记录都包括一个任期号，这个任期号是该条记录创建时，领导者所处的任期，随着日志记录的增多，这个任期号也会单调上升。</li>
+</ol>
+<p>Raft 需要保证日志在节点崩溃后还可以恢复，所以日志通常是存在于磁盘或其他稳定的存储介质中。如果某条记录已存储于大多数服务器，例如上图中的记录7，那么我们就称该条记录已提交（commited）。这是 Raft 协议里非常重要的一个属性。如果一条记录是已提交的，那么它就能安全被传送给状态机进行执行，Raft 可以保证该条记录的耐久性。</p>
+<p>在上图中记录 7 是已提交的，所有先于记录 7 的记录也是已提交的状态，但是记录 8 还处于未提交状态，因为它只存储于两台服务器上。现在需要注意的是，在稍后讨论如何管理跨服务器日志间的一致性的时候，我会对提交（commited）这个概念的定义作些许修改。</p>
+<h3 id="32-常态下的日志复制">3.2 常态下的日志复制</h3>
+<p>
+  <img src="/images/raft/image-20230416184931375.png" alt="image-20230416184931375">
+
+</p>
+<p>当 Leader 被选出来后，就可以接受客户端发来的请求了。</p>
+<ul>
+<li>
+<p>客户端将命令发送给 Leader，Leader 首先将命令写入它自己的日志中；</p>
+</li>
+<li>
+<p>然后向所有其他的跟随者发送 <code>AppendEntries</code> 的远程调用，通常这些调用会并发发送给所有节点执行，并等待这些消息的响应；</p>
+</li>
+<li>
+<p>一旦领导者收到足够多的响应，可以认为这条命令已经在多数服务器上处于已提交状态后，就可以执行这条命令。</p>
+</li>
+<li>
+<p>Leader 这时会将命令发送给状态机，当执行结束后，它会将结果返回给客户端。</p>
+</li>
+<li>
+<p>同时，一旦 Leader 确定某个记录已经处于提交状态，它就会通过后续的 <code>AppendEntries</code> 远程调用告知其他的服务器。</p>
+</li>
+</ul>
+<p>最终，每个 Follower 都会知道该记录已提交并在本地状态机执行该命令。如果 Follower 崩溃了或处于慢响应状态，Leader 会反复重试这个调用，直到跟随者恢复后，Leader 就能重试成功。</p>
+<p>但是 Leader 并不需要等待每个 Follower 的响应，它只需要等到足够数量的响应，保证记录已被大多数服务器存储即可。所以这样就能在一般情况下获得很好的性能提升。也就是说，在通常情况下，只需要获得大多数最快的服务器的应答，Leader 就可以立即执行命令，并将结果返回至客户端。</p>
+<h3 id="33-日志一致性log-consistency">3.3 日志一致性（Log Consistency）</h3>
+<p>Raft 期望并尽可能维持将集群日志维持高水准的一致性。理想状态下，这些日志在任何时候都应该是一致的。</p>
+<!-- raw HTML omitted -->
+<ol>
+<li>日志记录的索引以及任期号的组合可以唯一标识一条日志记录。即如果两个节点上的两条记录的索引与任期号都是一致的，那么就可以保证它们所代表命令也相同；</li>
+<li>除此之外，还能保证在这条记录之前的所有记录都能相互匹配。所以任期号和索引的组合可以唯一标识整个日志的起始至该点的位置。如果某条记录是已提交的，那么其所有前序的记录都应该处于已提交状态。这也与之前介绍的规则一致，如果发现服务器存储记录（如上图的记录 5），因为有了以上规则，它们存储的前序记录也必须相同。所以这些前序记录也存在于集群的大多数节点上。</li>
+</ol>
+<h3 id="34-appendentries-一致性检查">3.4 AppendEntries 一致性检查</h3>
+<p>上述提及的这个属性强制在 <code>AppendEntries</code> 远程调用时进行检查，当 Leader 向 Follower 发起 <code>AppendEntries</code> 调用时，除了新建的新日志记录，它还包括两个值。它包括当前新记录的前序记录的下标位置以及任期号，跟随者只会接受与它日志匹配的远程调用，如果跟随者的日志没有相应的记录，那么它会拒绝这个远程调用；</p>
+<!-- raw HTML omitted -->
+<p>这个一致性检查的过程非常重要。可以将这个过程看作一个归纳的步骤，从而保证前面一致性所讲的内容。它要求前序每条记录都能满足此条件，所以这意味着如果一个 Follower 接受了来自 Leader 的新记录，它的日志记录也与 Leader 的日志记录是完全匹配的。</p>
+<h2 id="4-leader-变更后的安全性">4. Leader 变更后的安全性</h2>
+<h3 id="41-leader-变更leader-change">4.1 Leader 变更（leader change）</h3>
+<p>当 Leader 发生变更时，新 Leader 面对的日志记录不一定是干净的，因为前一 Leader 可能在完成复制同步之前就已经崩溃了。</p>
+<p>在新的 Leader 被选出之前，Raft 并不会针对这个问题进行特别的操作，不存在一个独立清理过程，清理过程是在普通操作过程中发生的。原因是当新 Leader 被选出后，某些节点可能还处于宕机的状态，无法立即对它们的日志进行清理。但 Raft 仍然需要确保它们日志与 Leader 保持一致，所以就必须对系统进行设计，要求普通操作最终能让它们所有的日志达成一致状态。</p>
+<p>为了达成这个目标，Raft 始终会认为 Leader 的日志总是正确的，所以对于所有 Leader ，它们必须时刻的让 Follwer 的日志与自己保持一致，但同时还是有可能出现在 Leader 未完成任务就崩溃的情况，所以就会出现一个又一个的新 Leader 。</p>
+<!-- raw HTML omitted -->
+<p>所以，在极端扭曲的状态下，日志记录会无限堆积并出现混乱的状态，就如上图所示的那样。</p>
+<p>对于存在于 S1、S2、S3 中的第三条及之前的记录，是已提交状态的记录，所以我们必须保留它。而类似 S4、S5 中的第三条及后续记录，我们应该视为错误日志，丢弃掉。而其他的日志，并不是已提交状态，所以到底是保留还是丢弃它们并不重要。<em>Raft 还没有将它们传入状态机，也没有客户端得到了这些命令的执行结果。所以它们都是可以丢弃的</em>。</p>
+<p>在介绍 Leader 是如何让其他服务器上日志与之保持一致前，首先需要介绍两个概念：正确性（Correctness）和安全性（Safety）。我们是如何知道系统的行为是正确的？如何知道它们没有丢失一些重要信息？因为这里可以看到，为了让集群回到一致的状态，有些日志记录会被丢弃。我们是如何安全地做到这点的？</p>
+<h3 id="42-安全性要求">4.2 安全性要求</h3>
+<p>一旦某个状态机接受了一条日志记录并执行，Raft 必须保证不存在其他的状态机在相同的日志下标处执行不同的命令。即需要保证所有的状态机，以相同的顺序执行相同日志记录的命令。</p>
+<p>为了达成总体的安全性要求，Raft 实现了一个安全属性，一旦 Leader 确定某个特定记录已提交，那么 Raft 就需要保证该条记录在它所有未来领导者的日志记录中，并且也处于已提交状态。如果可以让 Raft 遵从这个属性，那么它就自然可以保证以上的安全性要求。</p>
+<p>首先，Leader 永远不会覆盖日志记录，它只会追加，正如我们所知，作为 Leader 时，这些日志记录永远不会被改变，其次，为了到达已提交的状态，记录必须在 Leader 日志中，这样就不会有其他值会被提交。第三，日志必须在发送给状态机执行前被提交。</p>
+<p>以上三点放在一起，我们就能使该属性可以满足安全性的要求。</p>
+<!-- raw HTML omitted -->
+<h3 id="43-选举最佳-leader">4.3 选举最佳 Leader</h3>
+<!-- raw HTML omitted -->
+<p>如何保证选择的 Leader 有所有已提交的日志记录？首先，这有点微妙，事实上我们无法辨别哪些记录是已提交的。如上图的三个节点，此时需要一个新的 Leader，但其中一个节点不可用，那么 Raft 无法通过查看其他节点上的日志记录分辨记录 5 是否已提交。在这个例子中，记录 5 是已提交的，但在其他情况下，可能不是。可以肯定的是我们无法知道哪些记录已被提交了。所以我们能做的就是找到一个 Candidate，这个 Candidate 很有可能包括所有已提交的记录，我先从直观上尝试解释如何做到的，然后在用精确的方式加以证明，我们是能够挑选到 Candidate 存有所有已提交的记录的。</p>
+<p>我们通过比较日志的方式来实现。当一个 Candidate 发起投票请求，它会包括自身的最新日志记录的信息，位置索引 index 以及该记录的任期号 term 。当响应投票的服务器接收到请求，它会将 Candidate 的日志信息与自己的日志信息进行比较，如果投票者的日志更完整，那么它会拒绝投票。即一个节点若要投票给某一 Candidate，则需要满足下述条件：
+$$
+(lastTerm_v &gt; lastTerm_c) || ((lastTerm_v == lastTerm_c) &amp;&amp; (lastIndex_v &gt; lastIndexc))
+$$
+结果是赢得选举的服务器可以保证比大多数投票者有更完整的日志记录，接下来让我们以两个场景为例，看看实际到底如何工作。</p>
+<h3 id="44-在当前任期提交记录">4.4 在当前任期提交记录</h3>
+<!-- raw HTML omitted -->
+<p>这里任期 2 以及 Leader（S1）刚成功调用 <code>AppendEntries</code> 至 S3 ，此时它确定记录已在大多数服务器上存储，随即标记该记录是已提交的，并将其传送给状态机。此时这条记录是安全的，下一任期的 Leader 必须认定该记录的已提交状态。正如之前介绍的规则，S4、S5 是无法成为下一任期的 Leader 的，只有 S1、S2、S3 可能被选举成 Leader，实际上，如果 S1 在它们中间，S1 一定可以保证赢得选举，但 S2、S3 也可以通过获得其他服务器（S4、S5）的投票，获胜成为 Leader。但在任意一种情况下，下一任期的 Leader 都必须包含该日志记录。</p>
+<h3 id="45-提交先前任期的记录">4.5 提交先前任期的记录</h3>
+<!-- raw HTML omitted -->
+<p>在这种场景下，Leader 在任期 2 只复制了两个节点上的日志记录，随后任期 3 的 Leader（S5）没有关注到这些记录，在它本地创建了一些记录，然后也崩溃了。然后在任期 4 上，Leader（S1）试图将其他服务器上的日志内容与它自己的达成一致。所以它让服务器 S3 复制了它自己 Term-2 记录，在这个点上，该记录已被领导者知道存于大多数服务器上，但该记录并没有安全的被提交。因为此时 S1 可能出现崩溃，S5 成为领导者，因为它的前序任期值 3 较大，所以它可以获得来自于 S2、S3、S4 的投票，如果它当选，那么它会试图将自己的日志推到其他的服务器，这也就意味着从 S1 - S4 下标位置索引 3 开始的所有记录都会被删除。所以此时我们还无法认定记录 3 是否已经提交。</p>
+<h3 id="46-对提交状态的重定义">4.6 对提交状态的重定义</h3>
+<p>在上面提及的情况下，新的选举规则并不足以保证安全性（Safety），我们还需要修改提交的规则。</p>
+<!-- raw HTML omitted -->
+<p>到目前为止只要 Leader 发现记录已存于大多数服务器，那么它就认为该记录已被提交。但是为了保证安全性，我们需要增加另一条规则。除了上述规则，Leader 必须能看见至少有一条来自于它本任期内的记录也存于大多数节点，才能认为它所复制的记录是提交的。</p>
+<p>回到之前的例子，如果 Leader 完成了记录 3-2 的复制，它此时还无法提交该记录并将其发送给状态机，取而代之的是，它必须等待直到它当前任期内的第一条记录（4-4）提交并存于大多数的服务器，才能认为这两条记录都是提交状态。至此，两条记录才能都发送给状态机。这么做的原因在于，在这种状态下，节点 S5 是不可能被选举为下届领导者的，因为有更多的服务器处于更近的任期（任期 4），服务器 S5 只能从服务器 S4 处得到选票。此时，记录 3 和 4 都是安全的。</p>
+<p>所以将新选举规则与新提交规则相结合，就能保证 Raft 的安全属性总是有效的。即一旦 Leader 决定记录已提交，它就会对未来的所有 Leader 可见。这里展示的例子已经说明已提交的记录对下一任期的 Leader 是可见，也易证明其对未来的每一任 Leader 都是可见的。</p>
+<h2 id="5-leader-变更后的日志一致性">5. Leader 变更后的日志一致性</h2>
+<h3 id="51-日志的不一致">5.1 日志的不一致</h3>
+<p>现在我们可以保证安全性，也明白了日志是正确的。那么我们如何让所有 Follower 的日志都与 Leader 保持一致呢？</p>
+<!-- raw HTML omitted -->
+<p>需要做的是剔除所有不同的日志记录，并将所有丢失的记录根据领导者的日志填充完整。</p>
+<h3 id="52-修复-follower-日志">5.2 修复 Follower 日志</h3>
+<!-- raw HTML omitted -->
+<p>为了维持节点间日志的一致性，Leader 会为每个 Follower 维护一个状态变量，这个变量称为 <code>nextIndex</code> ，Leader 会把这个位置发送给Follower（如上图所示，nextIndex = 11）。</p>
+<ul>
+<li>任期 7 的 Leader 的最后一条记录的索引位置是 10 ，那么它会将 nextIndex 设置成 11 ；</li>
+<li>Leader 会根据 <code>AppendEntries</code> RPC 调用发现一致性问题，因为当 Follower 接收到 <code>AppendEntries</code> 调用时，会进行检查；</li>
+<li>当下一次 Leader 想要与 Follower 进行通信时，它都会包括下标位置索引（10）以及任期号（6）作为请求的参数；</li>
+<li>当消息到达 Follower（a）后，它会将接收到的下标位置索引与任期与自己的日志信息进行比较，并没有匹配的记录，所以它会拒绝 <code>AppendEntries</code> 请求，当 Leader 收到拒绝的响应之后，它要做的只是将 nextIndex 减 1 ，所以这个值就变成了 10 然后再次发起调用。如此逐一减少，直到最终 nextIndex 为 5 的时候，Leader 再次发送请求的信息会包括下标位置索引（4）以及任期号（4），这时它与跟随者（a）当前的日志记录信息是相匹配的，所以这时跟随者会接受 <code>AppendEntries</code> 请求，并追加记录 5-4 。直到 Leader 将 Follower 的日志记录填充完整；</li>
+<li>相似的过程也会在 Follower（b）上出现。当 <code>nextIndex</code> 减少到 4 时，Leader 会包括下标位置索引（3）以及任期号（1）作为请求的参数，并修正 Follower（b）上的日志记录。</li>
+</ul>
+<h2 id="6-日志压缩log-compaction">6. 日志压缩（Log Compaction）</h2>
+<p>在实际的系统中，不能让日志无限增长，否则系统重启时需要花很长的时间进行回放，从而影响可用性（availability）。</p>
+<p>Raft 采用对整个系统进行 snapshot 来处理，snapshot 之前的日志都可以丢弃。每个副本独立的对自己的系统状态进行 snapshot，并且只能对已经提交的日志记录（已经应用到状态机）进行 snapshot。</p>
+<!-- raw HTML omitted -->
+<p>snapshot 的缺点就是不是增量的，即使内存中的某个值没有变，下次做 snapshot 的时候同样会被 dump 到磁盘。当 leader 需要发给某个 follower 的 log entry 被丢弃了（因为 leader 做了 snapshot），leader 会将 snapshot 发给落后太多的 follower。或者当新加一台机器时，也会发送 snapshot 给它。发送 snapshot 使用新的 RPC，<code>InstalledSnapshot</code>。</p>
+<p>做 snapshot 有一些需要注意的性能点：</p>
+<ol>
+<li>不要做得太频繁，否则消耗磁盘带宽；</li>
+<li>不要做得太不频繁，否则一旦节点重启需要回放大量日志，影响可用性。系统推荐当日志达到某个固定的大小做一次snapshot；</li>
+<li>做一次 snapshot 可能耗时过长，会影响正常 log entry 的 replicate。这个可以通过使用 copy-on-write 的技术来避免 snapshot 过程影响正常 log entry 的 replicate。</li>
+</ol>
+<h2 id="7-客户端读写">7. 客户端读写</h2>
+<p>接下来我们再看下客户端是如何与系统进行交互的。</p>
+<h3 id="71-写请求">7.1 写请求</h3>
+<p>写请求并不复杂，客户端将命令发送给 Leader，并获得响应，客户端可以与集群的任意一节点进行通信，如果这台节点不是 Leader，那么它会告知客户端，并将客户端重定向到 Leader，然后客户端会再次发送请求。然后 Leader 记录下命令，并将其提交且发送给状态机执行之后，才会将结果返回给客户端。</p>
+<p>这里需要注意的是，如果 Leader 发生崩溃或请求发生超时该怎么办？如果发生这种情况，客户端会随机挑选另一台服务器并再次发送请求，最终它会将请求发送到新的 Leader，新的领导这会执行该命令。这个可以保证命令最终总能被执行。</p>
+<p>但这留有一个风险，即命令有可能被执行两次。问题在于 Leader 会在执行完命令后响应客户端之前发生崩溃，所以命令本身是无法知道自己是否被记录或已被执行。这时客户端就会再次发起请求，这样命令就又被执行了一遍，这是不能被接受的。</p>
+<p>Raft 解决这个问题的办法是让客户端为每条命令生成一个唯一的 ID ，并将其与命令一起发送给领导者，当 Leader 记录该条命令时，也会包括这个唯一 ID ，但在 Leader 接受命令之前，它会进行检查，看其他记录中是否已存在相同的 ID ，如果存在相同的，那么它就会知道该条命令请求是多余的，所以它会找到该条记录，并忽略这条新命令，并将老的执行结果返回给客户端。</p>
+<p>所以只要客户端不崩溃，结果最多只会被执行一次。这也是我们希望系统应该具备的线性一致性。</p>
+<p>相对来说读请求的情况要复杂得多，针对客户端对数据的敏感度，分成了几种方式。</p>
+<h3 id="73-readindex">7.3 ReadIndex</h3>
+<p><strong>意为线性一致性读</strong>，要求在 T 时刻写入的值，在 T 时刻之后读肯定可以读到。</p>
+<p>Raft 的写入需要与多数节点同步，保证了数据的一致性。为了实现线性一致性读，读流程也可以走一遍 Raft，但是会产生磁盘IO，性能不好。理论上可以从 Leader 读取到最新的数据，但是在网络分区的情况下，无法确定当前的 Leader 是否是 Leader，可能产生了网络分区且其他节点选举了新的 Leader 并更新了部分数据，如果客户端还从旧 Leader 读取数据，便会产生<strong>Stale Read</strong>。</p>
+<ol>
+<li>当 Leader 收到读请求时， 先检查自己是否在当前 Term 提交过记录，没有否则直接返回；</li>
+<li>然后 Leader 将自己当前的 <code>commitIndex</code> 记录到变量 ReadIndex 里面；</li>
+<li>向 Follower 发起 Heartbeat，收到大多数 ACK 说明自己还是 Leader；</li>
+<li>Leader 等待 applyIndex &gt;= ReadIndex，就可以提供线性一致性读；</li>
+<li>返回给状态机，执行读操作返回结果给Client。</li>
+</ol>
+<h3 id="74-lease-read">7.4 Lease Read</h3>
+<p>Lease Read 相比 ReadIndex 更近了一步，不仅省去了 Log 的磁盘开销，还省去了 Heartbeat 的网络开销，提升读的性能。</p>
+<p><strong>基本思路</strong>：Leader获取一个比<code>election timeout</code>小的租期(Lease)，因为 Follower 至少在<code>election timeout</code>时间之后才会发送选举，那么在Lease内是不会进行Leader选举，就可以跳过 ReadIndex 心跳的环节，直接从 Leader 上读取。但是 Lease Read 的正确性是和时间挂钩的，如果时钟漂移比较严重，那么Lease Read就会产生问题。</p>
+<ol>
+<li>Leader 定时发送心跳给Follower，并记录时间点start；</li>
+<li>如果大多数回应，那么新的 Lease 到期时间为 <code>start + Lease(&lt;election timeout)</code>；</li>
+<li>Leader 确认自己是 Leader 后，等待 applyIndex &gt;= ReadIndex，就可以提供线性一致性读；</li>
+<li>返回给状态机，执行读操作并将结果返回给客户端。</li>
+</ol>
+<h3 id="75-follower-read">7.5 Follower Read</h3>
+<p>此外针对热点数据，我们还可以通过 Follower Read 减轻 Leader 节点的压力：</p>
+<ol>
+<li>Follower 向 Leader 请求 ReadIndex；</li>
+<li>Leader 执行完 <code>ReadIndex</code> 的前4步（用来确定自身是真正的Leader）；</li>
+<li>Leader 返回 commitIndex 给 Follower 作为 ReadIndex；</li>
+<li>Follower 等待 applyIndex &gt;= ReadIndex，就可以提供线性一致性读；</li>
+<li>返回给状态机，执行读操作并将结果返回给客户端。</li>
+</ol>
+<h2 id="8-功能完善">8. 功能完善</h2>
+<h3 id="81-pre-vote">8.1 pre-vote</h3>
+<p>Leader Election 中有这么一种场景：当 Follower 和 Candidate 被网络隔离后，如果 Candidate 在 election timeout 后还没有解除网络隔离，那么这个节点会一直timeout下去，带来的问题是这个被隔离的follower和candidate的term一直快速线性增加。</p>
+<p>针对这个问题，提出 pre-vote 机制：先前我们的 Follower 再超时时间后，会立刻转变为 Candidate 并发动选举，但在 pre-vote机制下，需要先进入 pre-candidate 状态，再先发送 pre-vote request，得到了大多数节点回复后进入 Candidate，再发送 <code>RequestVote</code>。</p>
+<h2 id="10-总结">10. 总结</h2>
+<p>以上就是对 Raft 协议的一些介绍。Raft 协议相对 Paxos 来说更容易理解，故而更容易在工程中实现，同时 Raft 与 Paxos 一样高效，效率上等价于（multi-）Paxos。能容忍最多一半的节点故障，具有一定的容灾能力。</p>
+<p>当然 Raft 也有其局限性，它只适用于 Permissioned systems（私有链），只能容忍故障节点，而无法容纳作恶节点，无法解决拜占庭问题。</p>
+
+
+                
+
+                
+                <hr>
+                <ul class="pager">
+                    
+                    <li class="previous">
+                        <a href="/post/23-03-28-deep-dive-into-iptables/" data-toggle="tooltip" data-placement="top" title="iptables 原理概述">&larr;
+                            Previous Post</a>
+                    </li>
+                    
+                    
+                </ul>
+                
+
+                
+
+
+
+            </div>
+
+            
+            
+            <div class="
+                col-lg-2 col-lg-offset-0
+                visible-lg-block
+                sidebar-container
+                catalog-container">
+                <div class="side-catalog">
+                    <hr class="hidden-sm hidden-xs">
+                    <h5>
+                        <a class="catalog-toggle" href="#">CATALOG</a>
+                    </h5>
+                    <ul class="catalog-body"></ul>
+                </div>
+            </div>
+            
+
+            
+            <div class="
+                col-lg-8 col-lg-offset-2
+                col-md-10 col-md-offset-1
+                sidebar-container">
+
+                
+                
+
+                
+                
+            </div>
+        </div>
+    </div>
+</article>
+
+
+
+
+<footer>
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                <ul class="list-inline text-center">                  
+                    
+                    
+                    
+                    
+                    
+
+		            
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+            
+            
+            
+           
+             </ul>
+		<p class="copyright text-muted">
+                    Copyright &copy; Zhaopeng Blog 2023
+                    <br>
+                    <a href="https://themes.gohugo.io/hugo-theme-cleanwhite">CleanWhite Hugo Theme</a> by <a href="https://zhaohuabing.com">Huabing</a> |
+                    <iframe
+                        style="margin-left: 2px; margin-bottom:-5px;"
+                        frameborder="0" scrolling="0" width="100px" height="20px"
+                        src="https://ghbtns.com/github-btn.html?user=zhaohuabing&repo=hugo-theme-cleanwhite&type=star&count=true" >
+                    </iframe>
+                </p>
+            </div>
+        </div>
+    </div>
+</footer>
+
+
+
+
+<script>
+    function loadAsync(u, c) {
+      var d = document, t = 'script',
+          o = d.createElement(t),
+          s = d.getElementsByTagName(t)[0];
+      o.src = u;
+      if (c) { o.addEventListener('load', function (e) { c(null, e); }, false); }
+      s.parentNode.insertBefore(o, s);
+    }
+</script>
+
+
+
+
+
+
+<script>
+    
+    if($('#tag_cloud').length !== 0){
+        loadAsync("/js/jquery.tagcloud.js",function(){
+            $.fn.tagcloud.defaults = {
+                
+                color: {start: '#bbbbee', end: '#0085a1'},
+            };
+            $('#tag_cloud a').tagcloud();
+        })
+    }
+</script>
+
+
+<script>
+    loadAsync("https://cdn.jsdelivr.net/npm/fastclick@1.0.6/lib/fastclick.min.js", function(){
+        var $nav = document.querySelector("nav");
+        if($nav) FastClick.attach($nav);
+    })
+</script>
+
+
+
+
+
+
+<script type="text/javascript">
+    function generateCatalog(selector) {
+
+        
+        
+        
+        
+            _containerSelector = 'div.post-container'
+        
+
+        
+        var P = $(_containerSelector), a, n, t, l, i, c;
+        a = P.find('h1,h2,h3,h4,h5,h6');
+
+        
+        $(selector).html('')
+
+        
+        a.each(function () {
+            n = $(this).prop('tagName').toLowerCase();
+            i = "#" + $(this).prop('id');
+            t = $(this).text();
+            c = $('<a href="' + i + '" rel="nofollow">' + t + '</a>');
+            l = $('<li class="' + n + '_nav"></li>').append(c);
+            $(selector).append(l);
+        });
+        return true;
+    }
+
+    generateCatalog(".catalog-body");
+
+    
+    $(".catalog-toggle").click((function (e) {
+        e.preventDefault();
+        $('.side-catalog').toggleClass("fold")
+    }))
+
+    
+
+
+    loadAsync("\/js\/jquery.nav.js", function () {
+        $('.catalog-body').onePageNav({
+            currentClass: "active",
+            changeHash: !1,
+            easing: "swing",
+            filter: "",
+            scrollSpeed: 700,
+            scrollOffset: 0,
+            scrollThreshold: .2,
+            begin: null,
+            end: null,
+            scrollChange: null,
+            padding: 80
+        });
+    });
+</script>
+
+
+
+
+
+
+</body>
+</html>

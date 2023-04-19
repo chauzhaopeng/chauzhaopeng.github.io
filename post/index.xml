@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Posts on Zhaopeng Blog</title>
+    <link>https://zhouzhaopeng.github.io/post/</link>
+    <description>Recent content in Posts on Zhaopeng Blog</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Sun, 16 Apr 2023 10:38:06 +0800</lastBuildDate><atom:link href="https://zhouzhaopeng.github.io/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Raft: 基于 Log 复制的共识算法</title>
+      <link>https://zhouzhaopeng.github.io/post/23-04-16-raft-consensus-algo-based-on-log-replication/</link>
+      <pubDate>Sun, 16 Apr 2023 10:38:06 +0800</pubDate>
+      
+      <guid>https://zhouzhaopeng.github.io/post/23-04-16-raft-consensus-algo-based-on-log-replication/</guid>
+      <description>References Raft 演示
+In Search of an Understandable Consensus Algorithm (Extended Version)
+1. Raft 是什么 1.1 目标: 复制 Log 在讲解 Raft 协议的具体行为之前我们需要明白 Raft 的目标是什么？在一些情况下我们需要保证分布式集群中的机器拥有相同的数据，以确保在 Leader 节点宕机的情况下，其他节点能够作为新的 Leader 被选举出来处理请求。这里产生一个问题，即我们如何才能确保集群中的机器拥有相同的数据呢？
+Raft 提供了一种行之有效的方式：即将 Leader 节点将要执行的命令，通过日志复制的方式同步到其他的节点，再由状态机按照日志的顺序执行日志中的每一条命令，就能够确保 Leader 节点上的数据与其他节点上的数据保持一致。这里提到的状态机通常指的是一个输入输出程序或应用。所以 Raft 的目的以及运作机制都在于此：
+复制 Log =&amp;gt; 复制状态机 =&amp;gt; 同步数据 这里简要介绍下这一过程：客户端将要执行的命令传递给集群中的 Leader，假设命令是 X，那么 X 首先会被 Leader 集群，然后会通过日志复制的方式（通常是一次 RPC 调用）同步到其他的节点，并被其他节点作为日志记录到本地。一旦 X 被安全地复制到日志中，那么它们就能被发送到状态机供执行。当状态机完成了 X 的执行，就会将结果返回给客户端。
+可以注意到只要各个节点上的 Log 是相同的，各个服务器上的状态机就能以相同的顺序执行相同的命令，这样它们执行的结果也都是一样的。所以共识性模块（上图中的 Consensus Module）的任务就是管理这些日志，并保证它们正确的在集群内复制并且决定何时将命令传送给状态机才是安全的。
+此外，Raft 设计之初也有为了容灾的目的。Raft 不需要所有的节点在任何时候都处于运行状态，实际上只要在大多数服务器（一般是 &amp;gt; 1/2 的节点）存活的状态下能继续正常运行和相互通信就可以。
+1.2 实现共识的方式 想要实现共识性算法主要有两种方式：
+对称式或无主式：在这种方式下，所有的节点的角色相同，拥有同等的权力，任何时候的行为几乎都是一样的，客户端可以与任何一个节点进行通信； 非对称式或领导式：集群内节点在任何时候都不是对等的，只有其中的一台服务器是 Leader，Leader 负责集群的所有操作，其他的节点只是简单地服从 Leader 发出的指令，在这种系统下，客户端永远与 Leader 通信，只有 Leader 才与其他的节点发送通信。 Raft 就是基于领导式的协议。它将共识性算法的问题分解成两类不同的问题：</description>
+    </item>
+    
+    <item>
+      <title>iptables 原理概述</title>
+      <link>https://zhouzhaopeng.github.io/post/23-03-28-deep-dive-into-iptables/</link>
+      <pubDate>Tue, 28 Mar 2023 20:37:16 +0800</pubDate>
+      
+      <guid>https://zhouzhaopeng.github.io/post/23-03-28-deep-dive-into-iptables/</guid>
+      <description>References A Deep Dive into Iptables and Netfilter Architecture Linux contrack: Why it breaks down and avoiding the probleam 《Kubernetes 网络权威指南 基础、原理与实战》，杜军，电子工业出版社 一、iptables 和 netfilter iptables 是 Linux 上最常用的防火墙工具。其底层是基于与 Linux 内核网络协议栈所提供的包过滤 hook 从而实现的。而负责提供这些 hook 的就是 Netfilter 框架。
+每个进入网络系统的包（接收或发送）在经过协议栈时都会触发这些 hook，程序可以通过注册 hook 函数的方式在一些关键路径上处理网络流量。而 Linux 上的防火墙功能正是基于 iptables 所提供的接口，在这些 hook 点上注册了处理函数，从而可以实现对应的防火墙规则。
+综上所述，即 Netfilter 是 Linux 内核提供的一个框架，而 iptables 是基于此框架实现的一个内核模块，同时我们也应该注意到，iptables 并不是唯一基于 Netfilter 实现的内核模块，同样基于 Netfilter 实现的还有例如 IPVS 模块等。
+二、Network Hook netfilter 提供了 5 个 hook 点。包经过这些点时会触发内核模块在这里注册的处理函数。触发哪个 hook 取决于包的方向（ingress/egress）、包的目的地址、包在上一个 hook 点是被丢弃还是拒绝等。</description>
+    </item>
+    
+  </channel>
+</rss>
